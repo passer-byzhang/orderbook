@@ -10,6 +10,7 @@ import "../interfaces/IVault.sol"
 import "../interfaces/IWETH.sol"
 import "../interfaces/IOracle.sol";
 import "../interfaces/IOrderbookRouter.sol";
+import "./utils/SafeToken.sol";
 
 contract Vault is ReentrancyGuardUpgradeable {
 
@@ -19,6 +20,10 @@ contract Vault is ReentrancyGuardUpgradeable {
     IOrderbookRouter public orderbook;
     uint256 lastPid;
 
+    event PositionCreated(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, uint256 timestamp);
+    event PositionRemoved(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, uint256 timestamp);
+    event PositionDealed(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, , address user , uint256 paymentAmount , uint256 timestamp);
+
     struct Position {
         address creator;
         address receiver;
@@ -26,7 +31,7 @@ contract Vault is ReentrancyGuardUpgradeable {
         address requestToken;
     }
 
-    mapping(address => Position) public positions;
+    mapping(uint256 => Position) public positions;
 
     function initialize(
         address _token,
@@ -46,18 +51,14 @@ contract Vault is ReentrancyGuardUpgradeable {
             orderbook.requestFund(token,requestAmount);
             lastPid++;
             positions[lastPid] = Position(amount,requestToken);
+            emit PositionCreated(lastPid, msg.sender, requestToken, amount, requestToken, block.timestamp);
         }else{
             Position memory position = positions[pid];
-            require(position.creater==user,"Vault: Cant access");
-            orderbook.requestFund(token,requestAmount);
-            if(amount>position.amount){
-                orderbook.requestFund(token,amount);
-                position.amount = position.amount + amount;
-            }else{
-                position.amount = position.amount - amount;
-                returnFund(token,position.amount - amount,position.creator);
-            }
-
+            position.amount = 0;
+            positions[pid] = position;
+            emit PositionRemoved(pid, msg.sender, position.receiver, position.amount, position.requestToken, block.timestamp);
+            
+        }
     }
 
     //购买，只有全单购买
@@ -65,23 +66,14 @@ contract Vault is ReentrancyGuardUpgradeable {
         Position memory position = positions[pid];
         require(position.amount > 0, "Vault: POSITION_NOT_EXISTS");
         uint256 requestAmount = IOracle(oracle).getAmount(position.requestToken,token,position.amount);
-        orderbook.requestFund(position.requestToken,requestAmount);
-        returnFund(position.requestToken,requestAmount,position.receiver);
-        ERC20Upgradeable(position.requestToken).transfer(position.receiver, _amount);
-        ERC20Upgradeable(token).transfer(_receiver, position.amount);
+        swap(position.requestToken, requestAmount, position.amount, position.receiver);
         position.amount = 0;
         positions[pid] = position;
+        emit PositionDealed(pid, position.creator, position.receiver, position.amount, position.requestToken, msg.sender, requestAmount, block.timestamp);
     }
 
-    //给挂单者发款项
-    function returnFund(address _token,address _amount,address _receiver) internal {
-        if (msg.value != 0) {
-            require(_token == weth, "Token is not wNative");
-            weth.withdraw(_amount);
-            (bool success,) = receiver.call{value: _amount}("");
-            require(success, "ETH transfer failed.");
-        } else {
-            ERC20Upgradeable(_token).transfer(_receiver, _amount);
-        }
+    function swap(address tokenTo /*付款token*/, uint256 amountTo /*付款数目*/, uint256 amountFrom /*订单数目*/, address to /*收款人*/) internal {
+        SafeToken.safeTransferFrom(tokenTo, msg.sender, to, amountTo);
+        SafeToken.safeTransfer(token, msg.sender,amountFrom);
     }
 }
