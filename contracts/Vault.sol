@@ -48,7 +48,7 @@ contract Vault is ReentrancyGuardUpgradeable {
             positions[lastPid] = Position(amount,requestToken);
         }else{
             Position memory position = positions[pid];
-            require(position.creater==user,"Vault: Can't access");
+            require(position.creater==user,"Vault: Cant access");
             orderbook.requestFund(token,requestAmount);
             if(amount>position.amount){
                 orderbook.requestFund(token,amount);
