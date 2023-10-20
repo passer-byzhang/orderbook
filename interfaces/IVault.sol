@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.20;
+import "./IOrderbookRouter.sol";
 
 interface IVault {
-    function initialize(address token,address oracle,address orderbook,address weth) external;
+    function initialize(address token,IOrderbookRouter orderbook) external;
 
     function trading(uint256 pid,bytes memory data) external;
 

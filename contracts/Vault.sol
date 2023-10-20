@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../interfaces/IOracle.sol";
-import "../interfaces/IVault.sol"
-import "../interfaces/IWETH.sol"
+import "../interfaces/IVault.sol";
+import "../interfaces/IWETH.sol";
 import "../interfaces/IOracle.sol";
 import "../interfaces/IOrderbookRouter.sol";
 import "./utils/SafeToken.sol";
 
-contract Vault is ReentrancyGuardUpgradeable {
+contract Vault is IVault, ReentrancyGuardUpgradeable,OwnableUpgradeable {
 
     IOracle public oracle;
     address public token;
-    IWETH public weth;
     IOrderbookRouter public orderbook;
     uint256 lastPid;
 
     event PositionCreated(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, uint256 timestamp);
     event PositionRemoved(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, uint256 timestamp);
-    event PositionDealed(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken, , address user , uint256 paymentAmount , uint256 timestamp);
+    event PositionDealed(uint256 indexed pid, address indexed creator, address receiver, uint256 amount, address requestToken , address user , uint256 paymentAmount , uint256 timestamp);
 
     struct Position {
         address creator;
@@ -36,28 +35,26 @@ contract Vault is ReentrancyGuardUpgradeable {
     function initialize(
         address _token,
         IOrderbookRouter _orderbook
-    ) external initializer {
-        OwnableUpgradeable.__Ownable_init();
+    ) external initializer{
+        OwnableUpgradeable.__Ownable_init(msg.sender);
         ReentrancyGuardUpgradeable.__ReentrancyGuard_init();
         orderbook = _orderbook;
         token = _token;
-        oracle = orderbook.oracle();
-        weth = orderbook.weth();
+        oracle = IOracle(orderbook.oracle());
     }
 
-    //开关调仓
-    function dealPosition(uint256 pid,uint256 amount,address requestToken,address user) nonReentrant external {
+    //开关仓
+    function dealPosition(uint256 pid,uint256 amount,address requestToken,address receiver) nonReentrant external {
         if(pid==0){
-            orderbook.requestFund(token,requestAmount);
+            SafeToken.safeTransferFrom(requestToken, msg.sender, address(this), amount);
             lastPid++;
-            positions[lastPid] = Position(amount,requestToken);
+            positions[lastPid] = Position(msg.sender,receiver,amount,requestToken);
             emit PositionCreated(lastPid, msg.sender, requestToken, amount, requestToken, block.timestamp);
         }else{
             Position memory position = positions[pid];
+            emit PositionRemoved(pid, msg.sender, position.receiver, position.amount, position.requestToken, block.timestamp);
             position.amount = 0;
             positions[pid] = position;
-            emit PositionRemoved(pid, msg.sender, position.receiver, position.amount, position.requestToken, block.timestamp);
-            
         }
     }
 
